@@ -1,17 +1,22 @@
+import smtplib
 from datetime import date
-
 from flask import Flask, abort, render_template, redirect, url_for, flash, request
 from flask_bootstrap import Bootstrap5
 from flask_ckeditor import CKEditor
-# from flask_gravatar import Gravatar
+from flask_gravatar import Gravatar
 from flask_login import UserMixin, login_user, LoginManager, current_user, logout_user
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import relationship, DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import Integer, String, Text
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-# Import your forms from the forms.py
-from forms import CreatePostForm, RegisterForm, LoginForm
+from forms import CreatePostForm, RegisterForm, LoginForm, CommentForm
+from dotenv import load_dotenv
+import os
+load_dotenv("C:/Python/Environmental variables/.env")
+
+my_mail = "sampleforpythonmail@gmail.com"
+password = os.getenv("smtp_app_password")
 
 
 '''
@@ -28,7 +33,8 @@ This will install the packages from the requirements.txt for this project.
 '''
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = '8BYkEfBA6O6donzWlSihBXox7C0sKR6b'
+# If 404 error occurs, change the below secret key
+app.config['SECRET_KEY'] = '8BYkEfBA6O6donzWlSihBXox7C0sKR6'
 ckeditor = CKEditor(app)
 Bootstrap5(app)
 
@@ -42,6 +48,17 @@ class Base(DeclarativeBase):
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///posts.db'
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
+
+# Gravatar is used for generating random profile pic for users in comments section
+gravatar = Gravatar(app,
+                    size=100,
+                    rating='g',
+                    default='retro',
+                    force_default=False,
+                    force_lower=False,
+                    use_ssl=False,
+                    base_url=None)
+
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -58,9 +75,7 @@ def admin_only(func):
     return decorated_function
 
 
-
-
-# CONFIGURE TABLES
+# CONFIGURE TABLES-----------------------------------------------------------------------------------------
 class Users(UserMixin,db.Model):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -70,6 +85,8 @@ class Users(UserMixin,db.Model):
     # This will act like a List of BlogPost objects attached to each User.
     # The "author" refers to the author property in the BlogPost class.
     posts = relationship("BlogPost", back_populates="author")
+    # ONE-TO-MANY Relationship between Users and Comment
+    comments = relationship("Comment",back_populates="user")
 
 
 class BlogPost(db.Model):
@@ -81,14 +98,32 @@ class BlogPost(db.Model):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     img_url: Mapped[str] = mapped_column(String(250), nullable=False)
     # Create Foreign Key, "users.id" the users refers to the table name of Users.
-    author_id: Mapped[int] = mapped_column(Integer, db.ForeignKey("users.id"))
+    author_id: Mapped[int] = mapped_column(Integer, db.ForeignKey("users.id", ondelete="CASCADE"))
     # Create reference to the Users object. The "posts" refers to the posts property in the User class.
     author = relationship("Users", back_populates="posts")
+    # ONE-TO-MANY Relationship between Blogpost and Comment
+    comments = relationship("Comment", back_populates="posts",
+                            cascade="all, delete-orphan", passive_deletes=True)
+    # Above "passive_deletes" tells SQLAlchemy to rely on the database to handle cascading deletes.
+    # "cascade" ensures that when a BlogPost is deleted, all related Comment objects will also be deleted.
+
+
+class Comment(db.Model):
+    __tablename__ = "Comments"
+    id:Mapped[int] = mapped_column(Integer,primary_key=True)
+    # ONE-TO-MANY Relationship with BlogPost
+    post_id: Mapped[int] = mapped_column(Integer,db.ForeignKey("blog_posts.id", ondelete="CASCADE"))
+    posts = relationship("BlogPost", back_populates="comments")
+    # ONE-TO-MANY Relationship with Users
+    user_id: Mapped[int] = mapped_column(Integer, db.ForeignKey("users.id"))
+    user = relationship("Users", back_populates="comments")
+
+    text:Mapped[str] = mapped_column(Text,nullable=False)
 
 
 with app.app_context():
     db.create_all()
-
+#----------------------------------------------------------------------------------------------------------
 
 @app.route('/register',methods=["POST","GET"])
 def register():
@@ -114,7 +149,6 @@ def register():
             return redirect(url_for("login"))
 
     return render_template("register.html",register_form = form)
-
 
 
 @app.route('/login',methods=["POST","GET"])
@@ -153,11 +187,25 @@ def get_all_posts():
     posts = result.scalars().all()
     return render_template("index.html", all_posts=posts)
 
-# TODO: Allow logged-in users to comment on posts
-@app.route("/post/<int:post_id>")
+
+@app.route("/post/<int:post_id>",methods=["POST","GET"])
 def show_post(post_id):
     requested_post = db.get_or_404(BlogPost, post_id)
-    return render_template("post.html", post=requested_post)
+    all_comments = db.session.execute(db.select(Comment).where(Comment.post_id == post_id)).scalars().all()
+    if current_user.is_authenticated:
+        comments = CommentForm()
+        if comments.validate_on_submit():
+            comment = request.form.get("comment")
+            new_comment = Comment(
+                text = comment,
+                posts = requested_post,
+                user = current_user
+            )
+            db.session.add(new_comment)
+            db.session.commit()
+            return redirect(url_for("show_post",post_id=requested_post.id))
+        return render_template("post.html", post = requested_post, comment_form = comments, all_comments = all_comments, gravatar = gravatar)
+    return render_template("post.html", post=requested_post, all_comments = all_comments, gravatar = gravatar)
 
 
 @app.route("/new-post", methods=["GET", "POST"])
@@ -201,10 +249,13 @@ def edit_post(post_id):
     return render_template("make-post.html", form=edit_form, is_edit=True)
 
 
-
 @app.route("/delete/<int:post_id>")
 @admin_only
 def delete_post(post_id):
+    # Delete comments associated with the post first
+    db.session.query(Comment).filter_by(post_id=post_id).delete()
+    db.session.commit()
+    # Then delete the post
     post_to_delete = db.get_or_404(BlogPost, post_id)
     db.session.delete(post_to_delete)
     db.session.commit()
@@ -216,8 +267,22 @@ def about():
     return render_template("about.html")
 
 
-@app.route("/contact")
+@app.route('/contact',methods=["POST","GET"])
 def contact():
+    if request.method == "POST":
+        data = request.form
+        with smtplib.SMTP("smtp.gmail.com", 587) as connection:
+            connection.starttls()
+            connection.login(my_mail, password=password)
+            connection.sendmail(from_addr=my_mail,
+                                to_addrs=my_mail,
+                                msg=f"Subject:Message from Blog\n\n"
+                                    f"Name : {data['name']}\n"
+                                    f"Email : {data['email']}\n"
+                                    f"Phone : {data['phone']}\n"
+                                    f"Message : {data['message']}")
+        flash("Sent Successfully!")
+        return render_template("contact.html",submitted = True)
     return render_template("contact.html")
 
 

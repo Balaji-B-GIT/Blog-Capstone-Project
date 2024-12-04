@@ -3,7 +3,7 @@
 <!-- Page Header-->
 <header
   class="masthead"
-  style="background-image: url('../static/assets/img/home-bg.jpg')"
+  style="background-image: url('../static/assets/img/home.png')"
 >
   <div class="container position-relative px-4 px-lg-5">
     <div class="row gx-4 gx-lg-5 justify-content-center">
@@ -29,7 +29,7 @@
         </a>
         <p class="post-meta">
           Posted by
-          <a href="#">{{post.author.name}}</a>
+          <a href="{{ url_for('about') }}">{{post.author.name}}</a>
           on {{post.date}}
           <!-- Only show delete button if user id is 1 (admin user) -->
           {% if current_user.get_id() == '1' %}
