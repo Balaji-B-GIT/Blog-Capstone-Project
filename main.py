@@ -61,6 +61,17 @@ def admin_only(func):
 
 
 # CONFIGURE TABLES
+class Users(UserMixin,db.Model):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name:Mapped[str] = mapped_column(String(250),nullable=False)
+    email:Mapped[str] = mapped_column(String(250),unique=True, nullable=False)
+    password:Mapped[str] = mapped_column(Text,nullable=False)
+    # This will act like a List of BlogPost objects attached to each User.
+    # The "author" refers to the author property in the BlogPost class.
+    posts = relationship("BlogPost", back_populates="author")
+
+
 class BlogPost(db.Model):
     __tablename__ = "blog_posts"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -68,18 +79,11 @@ class BlogPost(db.Model):
     subtitle: Mapped[str] = mapped_column(String(250), nullable=False)
     date: Mapped[str] = mapped_column(String(250), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
-    author: Mapped[str] = mapped_column(String(250), nullable=False)
     img_url: Mapped[str] = mapped_column(String(250), nullable=False)
-
-
-
-class Users(UserMixin,db.Model):
-    __tablename__ = "users"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name:Mapped[str] = mapped_column(String(250),nullable=False)
-    email:Mapped[str] = mapped_column(String(250),unique=True, nullable=False)
-    password:Mapped[str] = mapped_column(Text,nullable=False)
-
+    # Create Foreign Key, "users.id" the users refers to the table name of Users.
+    author_id: Mapped[int] = mapped_column(Integer, db.ForeignKey("users.id"))
+    # Create reference to the Users object. The "posts" refers to the posts property in the User class.
+    author = relationship("Users", back_populates="posts")
 
 
 with app.app_context():

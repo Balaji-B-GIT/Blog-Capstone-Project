@@ -23,13 +23,13 @@
       <!-- Post preview-->
       {% for post in all_posts %}
       <div class="post-preview">
-        <a href="{{ url_for('show_post', post_id=post.id, user_id = user_id) }}">
+        <a href="{{ url_for('show_post', post_id=post.id) }}">
           <h2 class="post-title">{{ post.title }}</h2>
           <h3 class="post-subtitle">{{ post.subtitle }}</h3>
         </a>
         <p class="post-meta">
           Posted by
-          <a href="#">{{post.author}}</a>
+          <a href="#">{{post.author.name}}</a>
           on {{post.date}}
           <!-- Only show delete button if user id is 1 (admin user) -->
           {% if current_user.get_id() == '1' %}
