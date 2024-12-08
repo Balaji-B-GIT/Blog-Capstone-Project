@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 import os
 import gunicorn
 import psycopg2
-load_dotenv("C:/Python/Environmental variables/.env")
 
 my_mail = "sampleforpythonmail@gmail.com"
 password = os.environ.get("app_password")
